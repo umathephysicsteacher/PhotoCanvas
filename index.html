@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html><!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -560,6 +560,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
       <span class="upload-icon">📁</span>
       <p><strong>Tap to upload</strong> or use camera<br>JPG, PNG, WEBP</p>
     </div>
+    <p id="photoCountLabel" style="font-size:12px;color:var(--mid);text-align:center;margin-bottom:8px;display:none;"></p>
     <div id="thumbnail-list"></div>
   </div>
 </div>
@@ -574,8 +575,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
   <div class="sheet-body">
     <p class="section-title">School Details</p>
     <div class="field-group">
-      <label class="field-label">School Name</label>
-      <input type="text" id="schoolName" value="Springfield Elementary" autocomplete="off">
+      <label class="field-label">Branch Name</label>
+      <input type="text" id="branchName" value="Whitefield Campus" autocomplete="off" placeholder="e.g. Whitefield Campus">
     </div>
     <div class="field-group">
       <label class="field-label">Class / Grade</label>
@@ -748,14 +749,31 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
   uZone.addEventListener('dragleave', () => uZone.classList.remove('drag-over'));
   uZone.addEventListener('drop', e => { e.preventDefault(); uZone.classList.remove('drag-over'); handleFiles(e.dataTransfer.files); });
 
+  function getMaxPhotos() { return Math.max(1, (+$('cols').value||4)) * Math.max(1, (+$('rows').value||5)); }
+
   function handleFiles(files) {
     const arr = Array.from(files).filter(f => f.type.startsWith('image/'));
-    arr.forEach(f => { photoFiles.push(f); photoOrder.push(photoFiles.length - 1); });
+    const max = getMaxPhotos();
+    const available = max - photoOrder.length;
+    if (available <= 0) { toast(`Grid full! Max ${max} photos (${$('cols').value}×${$('rows').value}). Clear or adjust layout.`); return; }
+    const toAdd = arr.slice(0, available);
+    const skipped = arr.length - toAdd.length;
+    toAdd.forEach(f => { photoFiles.push(f); photoOrder.push(photoFiles.length - 1); });
     renderThumbs(); updateStatus();
-    toast(`${arr.length} photo(s) added`);
+    if (skipped > 0) toast(`Added ${toAdd.length} photo(s). ${skipped} skipped — grid is full (${max} max).`, 4000);
+    else toast(`${toAdd.length} photo(s) added`);
   }
 
   function renderThumbs() {
+    const max = getMaxPhotos();
+    const label = $('photoCountLabel');
+    if (photoOrder.length > 0) {
+      label.style.display = 'block';
+      label.textContent = `${photoOrder.length} of ${max} slots filled`;
+      label.style.color = photoOrder.length >= max ? '#c44040' : 'var(--mid)';
+    } else {
+      label.style.display = 'none';
+    }
     const list = $('thumbnail-list');
     list.innerHTML = '';
     photoOrder.forEach((idx, pos) => {
@@ -844,20 +862,24 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
 
     // Header
     const hh = H * 0.09;
+    const branchLine = $('branchName').value || 'Main Campus';
     canvas.add(
       new fabric.Rect({ left:0,top:0,width:W,height:hh,fill:'#1a1a2e',
         selectable:!locked,evented:!locked,lockMovementX:locked,lockMovementY:locked,hasControls:!locked,hasBorders:!locked }),
-      new fabric.Text($('schoolName').value||'School', { left:W/2,top:hh*0.22,originX:'center',
-        fontFamily:'Georgia,serif',fontSize:Math.round(hh*0.32),fill:'#fff',fontWeight:'bold',
+      new fabric.Text('Samsidh School', { left:W/2,top:hh*0.18,originX:'center',
+        fontFamily:'Georgia,serif',fontSize:Math.round(hh*0.30),fill:'#fff',fontWeight:'bold',
+        selectable:!locked,evented:!locked,lockMovementX:locked,lockMovementY:locked,hasControls:!locked }),
+      new fabric.Text(branchLine, { left:W/2,top:hh*0.52,originX:'center',
+        fontFamily:'Georgia,serif',fontSize:Math.round(hh*0.20),fill:'#f0a868',fontWeight:'normal',
         selectable:!locked,evented:!locked,lockMovementX:locked,lockMovementY:locked,hasControls:!locked }),
       new fabric.Text(($('className').value||'Class')+' • '+($('yearTerm').value||''), {
-        left:W/2,top:hh*0.62,originX:'center',fontFamily:'Georgia,serif',fontSize:Math.round(hh*0.18),fill:'rgba(255,255,255,0.7)',
+        left:W/2,top:hh*0.74,originX:'center',fontFamily:'Georgia,serif',fontSize:Math.round(hh*0.15),fill:'rgba(255,255,255,0.6)',
         selectable:!locked,evented:!locked,lockMovementX:locked,lockMovementY:locked,hasControls:!locked }),
       new fabric.Rect({ left:0,top:hh-4,width:W,height:4,fill:'#c4692a',selectable:false,evented:false })
     );
 
     // Grid
-    const gridTop = hh + pad*2, gridH = H - gridTop - pad, gridW = W - pad*2;
+    const gridTop = hh + pad, gridH = H - gridTop - pad, gridW = W - pad*2;
     const cellW = (gridW - pad*(cols-1)) / cols;
     const cellH = (gridH - pad*(rows-1)) / rows;
     const isMobile = window.innerWidth < 768;
@@ -873,11 +895,15 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
       const col = i%cols, row = Math.floor(i/cols);
       const x = pad + col*(cellW+pad), y = gridTop + row*(cellH+pad);
       const iw = img.width, ih = img.height;
-      const sc = Math.min(cellW/iw, cellH/ih);
+      // Cover: fill cell fully, center-crop so no white gaps between photos
+      const sc = Math.max(cellW/iw, cellH/ih);
       img.set({
-        left: x + (cellW-iw*sc)/2,
-        top:  y + (cellH-ih*sc)/2,
+        left: x, top: y,
         scaleX: sc, scaleY: sc,
+        cropX: Math.max(0, (iw - cellW/sc) / 2),
+        cropY: Math.max(0, (ih - cellH/sc) / 2),
+        width: Math.min(iw, cellW/sc),
+        height: Math.min(ih, cellH/sc),
         lockUniScaling: true,
         cornerSize: cornerSz,
         touchCornerSize: 28,
@@ -965,7 +991,7 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
       }
     } else {
       const a = document.createElement('a');
-      a.download = ($('schoolName').value||'photosheet').replace(/\s+/g,'_') + '.jpg';
+      a.download = ('Samsidh_' + ($('branchName').value||'School')).replace(/\s+/g,'_') + '.jpg';
       a.href = dataURL; a.click();
       toast('⬇ Downloading…');
     }
@@ -985,7 +1011,8 @@ input[type="range"] { width: 100%; accent-color: var(--accent2); margin-bottom: 
 
   // ── Status ────────────────────────────────────────────
   function updateStatus() {
-    $('statusPhotos').textContent = `${photoFiles.length} photo(s)`;
+    const max = getMaxPhotos();
+    $('statusPhotos').textContent = `${photoFiles.length} / ${max} photos`;
     $('statusCanvas').textContent = canvas ? (() => { const [W,H]=getPagePx(); return `${W}×${H}px`; })() : 'No canvas';
   }
 
